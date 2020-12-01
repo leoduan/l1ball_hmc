@@ -1,0 +1,93 @@
+---
+title: "Illustration of L1-ball Prior"
+output: github_document
+---
+
+```{r}
+setwd("~/git/OneBallPrior/")
+require("rstan")
+
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+
+
+
+n = 200
+p = 1000
+X <- matrix(rnorm(n*p),n,p)
+d =5
+w0 <-    c( rnorm(d)*0.1 +4, rep(0, p-d))
+y = X%*% w0 + rnorm(n,0,.5)
+y=c(y)
+
+require('rstan')
+
+input_data= list(n=n,p=p,X=X,y=y)
+
+l1ball_fit <- stan(file='l1ball.stan',
+                      data=input_data,
+                      chains = 1,
+                      control=list(adapt_delta=0.6, max_treedepth=6),
+                      iter =4000, warmup = 3000
+                      )
+
+
+beta<- extract(l1ball_fit,"beta", permuted = FALSE)
+r<- extract(l1ball_fit,"r", permuted = FALSE)
+sigma<- extract(l1ball_fit,"sigma", permuted = FALSE)
+
+
+proj_l1_ball<- function(x,r){
+  
+  sorted_abs_x = sort(abs(x),decreasing = T)
+  
+  mu = cumsum(sorted_abs_x) - r
+  
+  p=length(x)
+  
+
+  for(i in 1:p){
+    if (sorted_abs_x[i]< mu[i]/i){
+      K=i-1
+      break
+    }
+    if(i==p){
+      K=p
+    }
+  }
+  
+  threshold = mu[K]/K
+  t = abs(x)- threshold
+  sign(x)* t*(t>0)
+  
+}
+
+
+theta<- matrix(0,1000,p)
+
+for(i in c(1:1000)){
+  theta[i,] = proj_l1_ball(beta[i,,],r[i,,])
+}
+
+ts.plot(r)
+
+ts.plot(theta[,1])
+acf(theta[,1])
+
+m =  apply(theta, 2, mean)
+q25= apply(theta, 2, function(x)quantile(x,0.025))
+q975= apply(theta, 2, function(x)quantile(x,0.975))
+
+# plot(m, xlim=c(0,50))
+# lines(q975, type='p',)
+# lines(q25, type='p')
+
+df=data.frame(idx=c(1:p),m=m,q25=q25,q975=q975)
+
+require(ggplot2)
+ggplot(df) +
+  geom_point( aes(x=idx, y=m), stat="identity", fill="skyblue", alpha=0.7) +
+  geom_errorbar( aes(x=idx, ymin=q25, ymax=q975), width=0.4, colour="orange", alpha=0.9, size=1.3)+
+  xlim(0,20)
+
+```
